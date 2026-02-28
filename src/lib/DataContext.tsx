@@ -13,7 +13,7 @@ import { useSession } from "next-auth/react";
 import { Channel, Video, Category } from "@/types";
 
 interface FeedCache {
-  key: string; // channelIds joined
+  key: string;
   videos: Video[];
   timestamp: number;
 }
@@ -22,10 +22,11 @@ interface DataContextType {
   channels: Channel[];
   categories: Category[];
   initialLoading: boolean;
+  error: string | null;
   refreshChannels: () => Promise<void>;
   refreshCategories: () => Promise<void>;
   refreshAll: () => Promise<void>;
-  // 피드 캐시
+  invalidateFeedCache: () => void;
   getCachedFeed: (channelIds: string[]) => Video[] | null;
   setCachedFeed: (channelIds: string[], videos: Video[]) => void;
 }
@@ -33,12 +34,14 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | null>(null);
 
 const FEED_CACHE_TTL = 5 * 60 * 1000; // 5분
+const MAX_CACHE_ENTRIES = 20;
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const loaded = useRef(false);
   const feedCacheRef = useRef<FeedCache[]>([]);
 
@@ -47,8 +50,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/channels");
       const data = await res.json();
-      if (!data.error) setChannels(data.channels || []);
-    } catch {}
+      if (data.error) {
+        console.error("Failed to refresh channels:", data.error);
+        return;
+      }
+      setChannels(data.channels || []);
+    } catch (err) {
+      console.error("Failed to fetch channels:", err);
+    }
   }, [session]);
 
   const refreshCategories = useCallback(async () => {
@@ -56,8 +65,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/categories");
       const data = await res.json();
-      if (!data.error) setCategories(data.categories || []);
-    } catch {}
+      if (data.error) {
+        console.error("Failed to refresh categories:", data.error);
+        return;
+      }
+      setCategories(data.categories || []);
+    } catch (err) {
+      console.error("Failed to fetch categories:", err);
+    }
   }, [session]);
 
   const refreshAll = useCallback(async () => {
@@ -71,9 +86,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
         chRes.json(),
         catRes.json(),
       ]);
-      if (!chData.error) setChannels(chData.channels || []);
-      if (!catData.error) setCategories(catData.categories || []);
-    } catch {}
+      if (chData.error) console.error("Channels error:", chData.error);
+      else setChannels(chData.channels || []);
+      if (catData.error) console.error("Categories error:", catData.error);
+      else setCategories(catData.categories || []);
+      setError(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "데이터를 불러올 수 없습니다.";
+      console.error("Failed to fetch data:", err);
+      setError(message);
+    }
   }, [session]);
 
   // 최초 1회 로드
@@ -88,32 +111,38 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [session, refreshAll]);
 
   // 피드 캐시 관리
-  const getCachedFeed = useCallback((channelIds: string[]): Video[] | null => {
-    const key = channelIds.sort().join(",");
-    const cached = feedCacheRef.current.find((c) => c.key === key);
-    if (cached && Date.now() - cached.timestamp < FEED_CACHE_TTL) {
-      return cached.videos;
-    }
-    return null;
-  }, []);
+  const getCachedFeed = useCallback(
+    (channelIds: string[]): Video[] | null => {
+      const key = [...channelIds].sort().join(",");
+      const cached = feedCacheRef.current.find((c) => c.key === key);
+      if (cached && Date.now() - cached.timestamp < FEED_CACHE_TTL) {
+        return cached.videos;
+      }
+      return null;
+    },
+    []
+  );
 
   const setCachedFeed = useCallback(
     (channelIds: string[], videos: Video[]) => {
-      const key = channelIds.sort().join(",");
+      const key = [...channelIds].sort().join(",");
       const existing = feedCacheRef.current.findIndex((c) => c.key === key);
       const entry: FeedCache = { key, videos, timestamp: Date.now() };
       if (existing >= 0) {
         feedCacheRef.current[existing] = entry;
       } else {
-        feedCacheRef.current.push(entry);
-        // 최대 20개 캐시
-        if (feedCacheRef.current.length > 20) {
+        if (feedCacheRef.current.length >= MAX_CACHE_ENTRIES) {
           feedCacheRef.current.shift();
         }
+        feedCacheRef.current.push(entry);
       }
     },
     []
   );
+
+  const invalidateFeedCache = useCallback(() => {
+    feedCacheRef.current = [];
+  }, []);
 
   return (
     <DataContext.Provider
@@ -121,9 +150,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         channels,
         categories,
         initialLoading,
+        error,
         refreshChannels,
         refreshCategories,
         refreshAll,
+        invalidateFeedCache,
         getCachedFeed,
         setCachedFeed,
       }}
@@ -133,7 +164,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useData() {
+export function useData(): DataContextType {
   const ctx = useContext(DataContext);
   if (!ctx) throw new Error("useData must be used within DataProvider");
   return ctx;

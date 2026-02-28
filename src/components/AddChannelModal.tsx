@@ -62,15 +62,23 @@ export default function AddChannelModal({
 
       // 2. 카테고리 배정 (선택된 경우)
       if (selectedCategoryId && channelId) {
-        await fetch("/api/categories", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "assign",
-            categoryId: selectedCategoryId,
-            channelId,
-          }),
-        });
+        try {
+          const assignRes = await fetch("/api/categories", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "assign",
+              categoryId: selectedCategoryId,
+              channelId,
+            }),
+          });
+          const assignData = await assignRes.json();
+          if (assignData.error) {
+            console.error("Category assign failed:", assignData.error);
+          }
+        } catch (assignErr) {
+          console.error("Category assign failed:", assignErr);
+        }
       }
 
       setSuccess(`"${data.channel?.title || "채널"}" 추가됨!`);
@@ -83,8 +91,8 @@ export default function AddChannelModal({
         onClose();
         setSuccess(null);
       }, 1200);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "채널 추가에 실패했습니다.");
     } finally {
       setAdding(false);
     }
@@ -116,8 +124,8 @@ export default function AddChannelModal({
 
       setNewCategoryName("");
       setShowNewCategory(false);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "카테고리 생성에 실패했습니다.");
     } finally {
       setCreatingCategory(false);
     }

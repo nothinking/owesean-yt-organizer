@@ -31,8 +31,8 @@ export default function ManagePage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       refreshChannels();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -52,8 +52,8 @@ export default function ManagePage() {
     try {
       await categoryAction({ action: "create", name });
       refreshCategories();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -61,8 +61,8 @@ export default function ManagePage() {
     try {
       await categoryAction({ action: "delete", categoryId });
       refreshCategories();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -70,8 +70,8 @@ export default function ManagePage() {
     try {
       await categoryAction({ action: "rename", categoryId, newName });
       refreshCategories();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -82,8 +82,8 @@ export default function ManagePage() {
     try {
       await categoryAction({ action: "assign", categoryId, channelId });
       refreshCategories();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -91,8 +91,8 @@ export default function ManagePage() {
     try {
       await categoryAction({ action: "unassign", channelId });
       refreshCategories();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업에 실패했습니다.");
     }
   };
 
@@ -210,7 +210,7 @@ export default function ManagePage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="채널 검색..."
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none w-48"
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none w-full sm:w-48"
             />
             <select
               value={filterCategory}

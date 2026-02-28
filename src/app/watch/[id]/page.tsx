@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { Video } from "@/types";
 import { useData } from "@/lib/DataContext";
+import { timeAgo } from "@/lib/utils";
 import Link from "next/link";
 
 export default function WatchPage() {
@@ -80,7 +81,7 @@ export default function WatchPage() {
   }, [sidebarChannelIds, videoId, getCachedFeed, setCachedFeed]);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
+    <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
       {/* Main: Player + Info */}
       <div className="flex-1 min-w-0">
         {/* YouTube Embed */}
@@ -145,7 +146,7 @@ export default function WatchPage() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-full lg:w-80 xl:w-96 flex-shrink-0">
+      <div className="w-full md:w-72 lg:w-80 xl:w-96 flex-shrink-0">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">
           {currentCategory
             ? `${currentCategory.name} 카테고리의 다른 영상`
@@ -222,19 +223,3 @@ function SidebarVideoCard({
   );
 }
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  const weeks = Math.floor(days / 7);
-  const months = Math.floor(days / 30);
-
-  if (minutes < 60) return `${minutes}분 전`;
-  if (hours < 24) return `${hours}시간 전`;
-  if (days < 7) return `${days}일 전`;
-  if (weeks < 5) return `${weeks}주 전`;
-  return `${months}개월 전`;
-}

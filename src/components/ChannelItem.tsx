@@ -20,32 +20,35 @@ export default function ChannelItem({
   onRemove,
 }: ChannelItemProps) {
   return (
-    <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors group">
+    <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors group">
       <a
         href={`https://www.youtube.com/channel/${channel.id}`}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-3 flex-1 min-w-0"
+        className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0"
       >
-        <div className="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center text-gray-400 text-lg font-bold overflow-hidden">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center text-gray-400 text-sm sm:text-lg font-bold overflow-hidden">
           {channel.thumbnailUrl ? (
             <img
               src={channel.thumbnailUrl}
               alt=""
               className="w-full h-full object-cover"
+              loading="lazy"
             />
           ) : (
             channel.title.charAt(0).toUpperCase()
           )}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium text-white truncate hover:text-blue-400 transition-colors">
+          <p className="text-xs sm:text-sm font-medium text-white truncate hover:text-blue-400 transition-colors">
             {channel.title}
           </p>
-          <p className="text-xs text-gray-500 truncate">{channel.id}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500 truncate hidden sm:block">
+            {channel.id}
+          </p>
         </div>
       </a>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
         <select
           value={currentCategoryId || ""}
           onChange={(e) => {
@@ -56,7 +59,7 @@ export default function ChannelItem({
               onUnassign(channel.id);
             }
           }}
-          className="text-xs bg-gray-700 text-gray-300 rounded-md px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none cursor-pointer"
+          className="text-xs bg-gray-700 text-gray-300 rounded-md px-1.5 sm:px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none cursor-pointer max-w-[100px] sm:max-w-none"
         >
           <option value="">미분류</option>
           {categories.map((cat) => (
@@ -72,7 +75,7 @@ export default function ChannelItem({
                 onRemove(channel.id);
               }
             }}
-            className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+            className="p-2 text-gray-500 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
             title="채널 삭제"
           >
             <svg
