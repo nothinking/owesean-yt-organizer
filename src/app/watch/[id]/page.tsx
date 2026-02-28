@@ -3,17 +3,16 @@
 import { useSession } from "next-auth/react";
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { Video, Category, Channel } from "@/types";
-import VideoCard from "@/components/VideoCard";
+import { Video } from "@/types";
+import { useData } from "@/lib/DataContext";
 import Link from "next/link";
 
 export default function WatchPage() {
   const { data: session } = useSession();
   const params = useParams();
   const videoId = params.id as string;
+  const { channels, categories, getCachedFeed, setCachedFeed } = useData();
 
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [channels, setChannels] = useState<Channel[]>([]);
   const [sidebarVideos, setSidebarVideos] = useState<Video[]>([]);
   const [loadingSidebar, setLoadingSidebar] = useState(false);
 
@@ -33,34 +32,17 @@ export default function WatchPage() {
     setSelectedCategoryId(searchParams.get("cat"));
   }, [videoId]);
 
-  // 카테고리 + 채널 목록 로드
-  useEffect(() => {
-    if (!session) return;
-    Promise.all([
-      fetch("/api/categories").then((r) => r.json()),
-      fetch("/api/channels").then((r) => r.json()),
-    ]).then(([catData, chData]) => {
-      setCategories(catData.categories || []);
-      setChannels(chData.channels || []);
-    });
-  }, [session]);
-
-  // 표시할 카테고리 결정:
-  // cat 파라미터가 있으면 해당 카테고리, 없으면 null (= 전체)
+  // 표시할 카테고리 결정
   const currentCategory = useMemo(() => {
     if (selectedCategoryId) {
       return categories.find((cat) => cat.id === selectedCategoryId) || null;
     }
-    // cat이 없으면 "전체" → 카테고리 자동 탐지 안 함
     return null;
   }, [categories, selectedCategoryId]);
 
   // 사이드바에 표시할 채널 ID 목록
-  // cat 파라미터가 없으면 (전체) → 모든 채널
-  // cat 파라미터가 있으면 → 해당 카테고리 채널만
   const sidebarChannelIds = useMemo(() => {
     if (!selectedCategoryId) {
-      // "전체"에서 들어온 경우 → 모든 채널 표시
       return channels.map((ch) => ch.id);
     }
     if (currentCategory) {
@@ -69,10 +51,18 @@ export default function WatchPage() {
     return [];
   }, [selectedCategoryId, currentCategory, channels]);
 
-  // 사이드바 영상 로드 (RSS)
+  // 사이드바 영상 로드 (캐시 활용)
   useEffect(() => {
     if (sidebarChannelIds.length === 0) {
       setSidebarVideos([]);
+      return;
+    }
+
+    // 캐시 확인
+    const cached = getCachedFeed(sidebarChannelIds);
+    if (cached) {
+      const filtered = cached.filter((v) => v.id !== videoId);
+      setSidebarVideos(filtered.slice(0, 20));
       return;
     }
 
@@ -80,14 +70,14 @@ export default function WatchPage() {
     fetch(`/api/feed?channelIds=${sidebarChannelIds.join(",")}`)
       .then((res) => res.json())
       .then((data) => {
-        const filtered = (data.videos || []).filter(
-          (v: Video) => v.id !== videoId
-        );
+        const allVideos = data.videos || [];
+        setCachedFeed(sidebarChannelIds, allVideos);
+        const filtered = allVideos.filter((v: Video) => v.id !== videoId);
         setSidebarVideos(filtered.slice(0, 20));
       })
       .catch(() => {})
       .finally(() => setLoadingSidebar(false));
-  }, [sidebarChannelIds, videoId]);
+  }, [sidebarChannelIds, videoId, getCachedFeed, setCachedFeed]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-6">
@@ -154,7 +144,7 @@ export default function WatchPage() {
         </div>
       </div>
 
-      {/* Sidebar: Same category videos */}
+      {/* Sidebar */}
       <div className="w-full lg:w-80 xl:w-96 flex-shrink-0">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">
           {currentCategory
@@ -182,7 +172,9 @@ export default function WatchPage() {
             <SidebarVideoCard
               key={video.id}
               video={video}
-              categoryId={selectedCategoryId ? (currentCategory?.id || null) : null}
+              categoryId={
+                selectedCategoryId ? currentCategory?.id || null : null
+              }
             />
           ))}
         </div>

@@ -1,53 +1,24 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { Channel, Category } from "@/types";
+import { useState, useMemo } from "react";
+import { useData } from "@/lib/DataContext";
 import CategoryManager from "@/components/CategoryManager";
 import ChannelItem from "@/components/ChannelItem";
 
 export default function ManagePage() {
   const { data: session, status } = useSession();
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(false);
+  const {
+    channels,
+    categories,
+    initialLoading,
+    refreshChannels,
+    refreshCategories,
+  } = useData();
+
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("__all__");
-
-  // Load channels from Supabase
-  const fetchChannels = useCallback(() => {
-    if (!session) return;
-    setLoading(true);
-    fetch("/api/channels")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setChannels(data.channels || []);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [session]);
-
-  useEffect(() => {
-    fetchChannels();
-  }, [fetchChannels]);
-
-  // Load categories from Supabase
-  const fetchCategories = useCallback(() => {
-    if (!session) return;
-    fetch("/api/categories")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setCategories(data.categories || []);
-      })
-      .catch((err) => setError(err.message));
-  }, [session]);
-
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
 
   // 채널 삭제
   const handleRemoveChannel = async (channelId: string) => {
@@ -59,7 +30,7 @@ export default function ManagePage() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setChannels((prev) => prev.filter((ch) => ch.id !== channelId));
+      refreshChannels();
     } catch (err: any) {
       setError(err.message);
     }
@@ -80,7 +51,7 @@ export default function ManagePage() {
   const handleCreateCategory = async (name: string) => {
     try {
       await categoryAction({ action: "create", name });
-      fetchCategories();
+      refreshCategories();
     } catch (err: any) {
       setError(err.message);
     }
@@ -89,7 +60,7 @@ export default function ManagePage() {
   const handleDeleteCategory = async (categoryId: string) => {
     try {
       await categoryAction({ action: "delete", categoryId });
-      fetchCategories();
+      refreshCategories();
     } catch (err: any) {
       setError(err.message);
     }
@@ -98,7 +69,7 @@ export default function ManagePage() {
   const handleRenameCategory = async (categoryId: string, newName: string) => {
     try {
       await categoryAction({ action: "rename", categoryId, newName });
-      fetchCategories();
+      refreshCategories();
     } catch (err: any) {
       setError(err.message);
     }
@@ -108,35 +79,20 @@ export default function ManagePage() {
     categoryId: string,
     channelId: string
   ) => {
-    setCategories((prev) =>
-      prev.map((cat) => ({
-        ...cat,
-        channelIds:
-          cat.id === categoryId
-            ? [...cat.channelIds.filter((id) => id !== channelId), channelId]
-            : cat.channelIds.filter((id) => id !== channelId),
-      }))
-    );
     try {
       await categoryAction({ action: "assign", categoryId, channelId });
+      refreshCategories();
     } catch (err: any) {
       setError(err.message);
-      fetchCategories();
     }
   };
 
   const handleUnassignChannel = async (channelId: string) => {
-    setCategories((prev) =>
-      prev.map((cat) => ({
-        ...cat,
-        channelIds: cat.channelIds.filter((id) => id !== channelId),
-      }))
-    );
     try {
       await categoryAction({ action: "unassign", channelId });
+      refreshCategories();
     } catch (err: any) {
       setError(err.message);
-      fetchCategories();
     }
   };
 
@@ -178,7 +134,7 @@ export default function ManagePage() {
   ).size;
   const uncategorizedCount = channels.length - categorizedCount;
 
-  if (status === "loading") {
+  if (status === "loading" || initialLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-gray-400">로딩 중...</div>
@@ -284,42 +240,33 @@ export default function ManagePage() {
           </div>
         )}
 
-        {loading && (
-          <div className="text-center py-12 text-gray-400">
-            <div className="inline-block w-6 h-6 border-2 border-gray-600 border-t-white rounded-full animate-spin mb-3" />
-            <p>채널 목록을 불러오는 중...</p>
-          </div>
-        )}
-
-        {!loading && (
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500">
-              {filteredChannels.length}개 채널 표시 중
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">
+            {filteredChannels.length}개 채널 표시 중
+          </p>
+          {filteredChannels.map((channel) => (
+            <ChannelItem
+              key={channel.id}
+              channel={channel}
+              categories={categories}
+              currentCategoryId={channelCategoryMap[channel.id]}
+              onAssign={handleAssignChannel}
+              onUnassign={handleUnassignChannel}
+              onRemove={handleRemoveChannel}
+            />
+          ))}
+          {filteredChannels.length === 0 && channels.length > 0 && (
+            <p className="text-center py-8 text-gray-500">
+              검색 결과가 없습니다.
             </p>
-            {filteredChannels.map((channel) => (
-              <ChannelItem
-                key={channel.id}
-                channel={channel}
-                categories={categories}
-                currentCategoryId={channelCategoryMap[channel.id]}
-                onAssign={handleAssignChannel}
-                onUnassign={handleUnassignChannel}
-                onRemove={handleRemoveChannel}
-              />
-            ))}
-            {filteredChannels.length === 0 && channels.length > 0 && (
-              <p className="text-center py-8 text-gray-500">
-                검색 결과가 없습니다.
-              </p>
-            )}
-            {channels.length === 0 && !loading && (
-              <p className="text-center py-8 text-gray-500">
-                아직 추가된 채널이 없습니다. 상단의 &ldquo;채널 추가&rdquo;
-                버튼으로 YouTube 채널을 추가해보세요.
-              </p>
-            )}
-          </div>
-        )}
+          )}
+          {channels.length === 0 && (
+            <p className="text-center py-8 text-gray-500">
+              아직 추가된 채널이 없습니다. 상단의 &ldquo;채널 추가&rdquo;
+              버튼으로 YouTube 채널을 추가해보세요.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

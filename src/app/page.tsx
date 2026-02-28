@@ -2,58 +2,28 @@
 
 import { useSession } from "next-auth/react";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Channel, Video, Category } from "@/types";
+import { Video } from "@/types";
+import { useData } from "@/lib/DataContext";
 import CategoryCard from "@/components/CategoryCard";
 import VideoCard from "@/components/VideoCard";
 
 export default function FeedPage() {
   const { data: session, status } = useSession();
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const {
+    channels,
+    categories,
+    initialLoading,
+    getCachedFeed,
+    setCachedFeed,
+  } = useData();
+
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null
   );
   const [videos, setVideos] = useState<Video[]>([]);
-  const [initialLoading, setInitialLoading] = useState(true);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dataLoaded = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-
-  // Load channels + categories together (한번에)
-  useEffect(() => {
-    if (!session) return;
-    setInitialLoading(true);
-    Promise.all([
-      fetch("/api/channels").then((r) => r.json()),
-      fetch("/api/categories").then((r) => r.json()),
-    ])
-      .then(([chData, catData]) => {
-        if (chData.error) throw new Error(chData.error);
-        if (catData.error) throw new Error(catData.error);
-        setChannels(chData.channels || []);
-        setCategories(catData.categories || []);
-        dataLoaded.current = true;
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setInitialLoading(false));
-  }, [session]);
-
-  // Refresh categories when tab becomes visible
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && session) {
-        fetch("/api/categories")
-          .then((r) => r.json())
-          .then((data) => {
-            if (!data.error) setCategories(data.categories || []);
-          });
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, [session]);
 
   // Get uncategorized channel IDs
   const getUncategorizedIds = useCallback((): string[] => {
@@ -73,13 +43,20 @@ export default function FeedPage() {
     return cat?.channelIds || [];
   }, [selectedCategoryId, categories, channels, getUncategorizedIds]);
 
-  // Load videos via RSS feed
+  // Load videos via RSS feed (with cache)
   useEffect(() => {
-    if (!session || !dataLoaded.current) return;
+    if (!session || initialLoading || channels.length === 0) return;
 
     const channelIds = getSelectedChannelIds();
     if (channelIds.length === 0) {
       setVideos([]);
+      return;
+    }
+
+    // 캐시 확인
+    const cached = getCachedFeed(channelIds);
+    if (cached) {
+      setVideos(cached);
       return;
     }
 
@@ -97,13 +74,22 @@ export default function FeedPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.error) throw new Error(data.error);
-        setVideos(data.videos || []);
+        const vids = data.videos || [];
+        setVideos(vids);
+        setCachedFeed(channelIds, vids);
       })
       .catch((err) => {
         if (err.name !== "AbortError") setError(err.message);
       })
       .finally(() => setLoadingVideos(false));
-  }, [session, getSelectedChannelIds]);
+  }, [
+    session,
+    initialLoading,
+    channels,
+    getSelectedChannelIds,
+    getCachedFeed,
+    setCachedFeed,
+  ]);
 
   const uncategorizedIds = getUncategorizedIds();
 
@@ -131,7 +117,6 @@ export default function FeedPage() {
     );
   }
 
-  // 초기 로딩 (채널+카테고리 불러오기)
   if (initialLoading) {
     return (
       <div className="text-center py-12 text-gray-400">
@@ -190,7 +175,7 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* 영상 그리드: 로딩 중에도 기존 영상 유지, 위에 로딩 인디케이터만 표시 */}
+      {/* 영상 그리드: 로딩 중에도 기존 영상 유지 */}
       {loadingVideos && videos.length === 0 && (
         <div className="text-center py-12 text-gray-400">
           <div className="inline-block w-6 h-6 border-2 border-gray-600 border-t-white rounded-full animate-spin mb-3" />
@@ -200,7 +185,6 @@ export default function FeedPage() {
 
       {videos.length > 0 && (
         <div className="relative">
-          {/* 카테고리 전환 시 로딩 오버레이 */}
           {loadingVideos && (
             <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
               <div className="inline-block w-6 h-6 border-2 border-gray-600 border-t-white rounded-full animate-spin" />

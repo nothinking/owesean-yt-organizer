@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import { useData } from "@/lib/DataContext";
 import AuthButton from "./AuthButton";
 import AddChannelModal from "./AddChannelModal";
 
 export default function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { refreshAll } = useData();
   const [showAddModal, setShowAddModal] = useState(false);
 
   return (
@@ -82,6 +84,7 @@ export default function Header() {
       <AddChannelModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onAdded={() => refreshAll()}
       />
     </>
   );
