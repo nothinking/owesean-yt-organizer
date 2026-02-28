@@ -7,16 +7,28 @@ import { useSession } from "next-auth/react";
 import { useData } from "@/lib/DataContext";
 import AuthButton from "./AuthButton";
 import AddChannelModal from "./AddChannelModal";
+import ClipboardDetector from "./ClipboardDetector";
 
 export default function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { refreshAll, invalidateFeedCache } = useData();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [clipboardUrl, setClipboardUrl] = useState("");
 
   const handleChannelAdded = () => {
     invalidateFeedCache();
     refreshAll();
+  };
+
+  const handleClipboardDetected = (url: string) => {
+    setClipboardUrl(url);
+    setShowAddModal(true);
+  };
+
+  const handleModalClose = () => {
+    setShowAddModal(false);
+    setClipboardUrl("");
   };
 
   return (
@@ -64,7 +76,7 @@ export default function Header() {
           <div className="flex items-center gap-2 sm:gap-3">
             {session && (
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={() => { setClipboardUrl(""); setShowAddModal(true); }}
                 className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 active:bg-red-700 transition-colors"
                 title="채널 추가"
               >
@@ -89,10 +101,15 @@ export default function Header() {
         </div>
       </header>
 
+      {session && (
+        <ClipboardDetector onDetected={handleClipboardDetected} />
+      )}
+
       <AddChannelModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={handleModalClose}
         onAdded={handleChannelAdded}
+        initialUrl={clipboardUrl}
       />
     </>
   );

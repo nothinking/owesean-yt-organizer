@@ -7,12 +7,14 @@ interface AddChannelModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdded?: () => void;
+  initialUrl?: string;
 }
 
 export default function AddChannelModal({
   isOpen,
   onClose,
   onAdded,
+  initialUrl = "",
 }: AddChannelModalProps) {
   const [channelUrl, setChannelUrl] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
@@ -29,7 +31,7 @@ export default function AddChannelModal({
   // 모달 열릴 때 카테고리 로드
   useEffect(() => {
     if (!isOpen) return;
-    setChannelUrl("");
+    setChannelUrl(initialUrl || "");
     setSelectedCategoryId("");
     setError(null);
     setSuccess(null);
