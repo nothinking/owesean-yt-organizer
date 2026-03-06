@@ -29,6 +29,8 @@ declare namespace YT {
       }
     );
     destroy(): void;
+    seekTo(seconds: number, allowSeekAhead: boolean): void;
+    playVideo(): void;
   }
   enum PlayerState {
     ENDED = 0,
@@ -50,6 +52,9 @@ export default function WatchPage() {
   const [orderedVideos, setOrderedVideos] = useState<Video[]>([]); // 전체 순서 (현재 영상 포함)
   const [loadingSidebar, setLoadingSidebar] = useState(false);
   const [durations, setDurations] = useState<Record<string, number>>({});
+
+  // 반복 재생 상태
+  const [loopEnabled, setLoopEnabled] = useState(false);
 
   // 연속 재생 상태
   const [autoplayEnabled, setAutoplayEnabled] = useState(true);
@@ -189,7 +194,12 @@ export default function WatchPage() {
     }, 1000);
   }, [getNextVideoUrl, cancelCountdown, router]);
 
-  // onStateChange에서 autoplayEnabled 최신 값 참조를 위한 ref
+  // onStateChange에서 최신 값 참조를 위한 ref
+  const loopRef = useRef(loopEnabled);
+  useEffect(() => {
+    loopRef.current = loopEnabled;
+  }, [loopEnabled]);
+
   const autoplayRef = useRef(autoplayEnabled);
   useEffect(() => {
     autoplayRef.current = autoplayEnabled;
@@ -217,8 +227,13 @@ export default function WatchPage() {
         playerVars: { autoplay: 1, rel: 0 },
         events: {
           onStateChange: (event: { data: number }) => {
-            if (event.data === 0 && autoplayRef.current && nextVideoRef.current) {
-              startCountdownRef.current();
+            if (event.data === 0) {
+              if (loopRef.current && playerRef.current) {
+                playerRef.current.seekTo(0, true);
+                playerRef.current.playVideo();
+              } else if (autoplayRef.current && nextVideoRef.current) {
+                startCountdownRef.current();
+              }
             }
           },
         },
@@ -317,6 +332,31 @@ export default function WatchPage() {
             </div>
 
             <div className="flex items-center gap-4">
+              {/* 반복 재생 버튼 */}
+              <button
+                onClick={() => setLoopEnabled((v) => !v)}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  loopEnabled
+                    ? "text-blue-400 bg-blue-400/10"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+                title={loopEnabled ? "반복 재생 끄기" : "반복 재생 켜기"}
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 12V9a4 4 0 0 1 4-4h8l-3-3m3 3-3 3M20 12v3a4 4 0 0 1-4 4H8l3 3m-3-3 3-3"
+                  />
+                </svg>
+              </button>
+
               {/* 연속 재생 토글 */}
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <span className="text-sm text-gray-400">연속 재생</span>
