@@ -1,22 +1,62 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState, useEffect, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { Video } from "@/types";
 import { useData } from "@/lib/DataContext";
 import { timeAgo, formatDuration } from "@/lib/utils";
 import Link from "next/link";
 
+declare global {
+  interface Window {
+    YT: typeof YT;
+    onYouTubeIframeAPIReady: (() => void) | undefined;
+  }
+}
+
+declare namespace YT {
+  class Player {
+    constructor(
+      elementId: string | HTMLElement,
+      options: {
+        videoId?: string;
+        playerVars?: Record<string, number | string>;
+        events?: {
+          onReady?: (event: { target: Player }) => void;
+          onStateChange?: (event: { data: number }) => void;
+        };
+      }
+    );
+    destroy(): void;
+  }
+  enum PlayerState {
+    ENDED = 0,
+    PLAYING = 1,
+    PAUSED = 2,
+    BUFFERING = 3,
+    CUED = 5,
+  }
+}
+
 export default function WatchPage() {
   const { data: session } = useSession();
   const params = useParams();
+  const router = useRouter();
   const videoId = params.id as string;
   const { channels, categories, getCachedFeed, setCachedFeed } = useData();
 
   const [sidebarVideos, setSidebarVideos] = useState<Video[]>([]);
+  const [orderedVideos, setOrderedVideos] = useState<Video[]>([]); // 전체 순서 (현재 영상 포함)
   const [loadingSidebar, setLoadingSidebar] = useState(false);
   const [durations, setDurations] = useState<Record<string, number>>({});
+
+  // 연속 재생 상태
+  const [autoplayEnabled, setAutoplayEnabled] = useState(true);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const playerRef = useRef<YT.Player | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
 
   const [channelId, setChannelId] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState("");
@@ -73,20 +113,21 @@ export default function WatchPage() {
         .catch(() => {});
     };
 
-    const applyFilters = (vids: Video[]) => {
-      let result = vids.filter((v) => v.id !== videoId);
+    const processVideos = (vids: Video[]) => {
+      let filtered = vids;
       if (channelFilterId) {
-        result = result.filter((v) => v.channelId === channelFilterId);
+        filtered = filtered.filter((v) => v.channelId === channelFilterId);
       }
-      return result.slice(0, 20);
+      const ordered = filtered.slice(0, 20);
+      setOrderedVideos(ordered);
+      setSidebarVideos(ordered);
+      fetchDurations(ordered);
     };
 
     // 캐시 확인
     const cached = getCachedFeed(sidebarChannelIds);
     if (cached) {
-      const sliced = applyFilters(cached);
-      setSidebarVideos(sliced);
-      fetchDurations(sliced);
+      processVideos(cached);
       return;
     }
 
@@ -96,27 +137,155 @@ export default function WatchPage() {
       .then((data) => {
         const allVideos = data.videos || [];
         setCachedFeed(sidebarChannelIds, allVideos);
-        const sliced = applyFilters(allVideos);
-        setSidebarVideos(sliced);
-        fetchDurations(sliced);
+        processVideos(allVideos);
       })
       .catch(() => {})
       .finally(() => setLoadingSidebar(false));
   }, [sidebarChannelIds, videoId, channelFilterId, getCachedFeed, setCachedFeed]);
 
+  // 다음 영상: 전체 순서에서 현재 영상 다음 위치
+  const nextVideo = useMemo(() => {
+    const idx = orderedVideos.findIndex((v) => v.id === videoId);
+    if (idx === -1 || idx + 1 >= orderedVideos.length) return null;
+    return orderedVideos[idx + 1];
+  }, [orderedVideos, videoId]);
+  const getNextVideoUrl = useCallback(() => {
+    if (!nextVideo) return null;
+    const p: Record<string, string> = {
+      ch: nextVideo.channelId,
+      title: nextVideo.title,
+      chTitle: nextVideo.channelTitle,
+    };
+    if (selectedCategoryId) p.cat = selectedCategoryId;
+    if (channelFilterId) p.chFilter = channelFilterId;
+    return `/watch/${nextVideo.id}?${new URLSearchParams(p).toString()}`;
+  }, [nextVideo, selectedCategoryId, channelFilterId]);
+
+  // 카운트다운 취소
+  const cancelCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setCountdown(null);
+  }, []);
+
+  // 카운트다운 시작
+  const startCountdown = useCallback(() => {
+    const url = getNextVideoUrl();
+    if (!url) return;
+    cancelCountdown();
+    setCountdown(5);
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(countdownRef.current!);
+          countdownRef.current = null;
+          router.push(url);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [getNextVideoUrl, cancelCountdown, router]);
+
+  // onStateChange에서 autoplayEnabled 최신 값 참조를 위한 ref
+  const autoplayRef = useRef(autoplayEnabled);
+  useEffect(() => {
+    autoplayRef.current = autoplayEnabled;
+  }, [autoplayEnabled]);
+
+  const startCountdownRef = useRef(startCountdown);
+  useEffect(() => {
+    startCountdownRef.current = startCountdown;
+  }, [startCountdown]);
+
+  const nextVideoRef = useRef(nextVideo);
+  useEffect(() => {
+    nextVideoRef.current = nextVideo;
+  }, [nextVideo]);
+
+  // YouTube IFrame API 로드 및 플레이어 생성
+  useEffect(() => {
+    const initPlayer = () => {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+      playerRef.current = new window.YT.Player("yt-player", {
+        videoId,
+        playerVars: { autoplay: 1, rel: 0 },
+        events: {
+          onStateChange: (event: { data: number }) => {
+            if (event.data === 0 && autoplayRef.current && nextVideoRef.current) {
+              startCountdownRef.current();
+            }
+          },
+        },
+      });
+    };
+
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      const existingScript = document.querySelector(
+        'script[src="https://www.youtube.com/iframe_api"]'
+      );
+      if (!existingScript) {
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
+      }
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [videoId]);
+
+  // autoplayEnabled가 꺼지면 진행 중인 카운트다운 취소
+  useEffect(() => {
+    if (!autoplayEnabled) cancelCountdown();
+  }, [autoplayEnabled, cancelCountdown]);
+
+  // videoId 변경 시 카운트다운 초기화
+  useEffect(() => {
+    cancelCountdown();
+  }, [videoId, cancelCountdown]);
+
   return (
     <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
       {/* Main: Player + Info */}
       <div className="flex-1 min-w-0">
-        {/* YouTube Embed */}
-        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden">
-          <iframe
-            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
-            title={videoTitle}
-            className="absolute inset-0 w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
+        {/* YouTube Player (IFrame API) */}
+        <div
+          ref={playerContainerRef}
+          className="relative w-full aspect-video bg-black rounded-xl overflow-hidden"
+        >
+          <div id="yt-player" className="absolute inset-0 w-full h-full" />
+
+          {/* 카운트다운 오버레이 */}
+          {countdown !== null && nextVideo && (
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10 gap-3">
+              <p className="text-gray-400 text-sm">다음 영상</p>
+              <p className="text-white text-lg font-semibold text-center px-4 line-clamp-2">
+                {nextVideo.title}
+              </p>
+              <div className="text-5xl font-bold text-white mt-2">
+                {countdown}
+              </div>
+              <button
+                onClick={cancelCountdown}
+                className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+              >
+                취소
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Video Info */}
@@ -147,14 +316,35 @@ export default function WatchPage() {
               )}
             </div>
 
-            <a
-              href={`https://www.youtube.com/watch?v=${videoId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-gray-400 hover:text-white transition-colors"
-            >
-              YouTube에서 보기 →
-            </a>
+            <div className="flex items-center gap-4">
+              {/* 연속 재생 토글 */}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-sm text-gray-400">연속 재생</span>
+                <button
+                  role="switch"
+                  aria-checked={autoplayEnabled}
+                  onClick={() => setAutoplayEnabled((v) => !v)}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${
+                    autoplayEnabled ? "bg-blue-500" : "bg-gray-600"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      autoplayEnabled ? "translate-x-4" : ""
+                    }`}
+                  />
+                </button>
+              </label>
+
+              <a
+                href={`https://www.youtube.com/watch?v=${videoId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-gray-400 hover:text-white transition-colors"
+              >
+                YouTube에서 보기 →
+              </a>
+            </div>
           </div>
         </div>
 
@@ -201,6 +391,7 @@ export default function WatchPage() {
             <SidebarVideoCard
               key={video.id}
               video={video}
+              isActive={video.id === videoId}
               categoryId={
                 selectedCategoryId ? currentCategory?.id || null : null
               }
@@ -216,11 +407,13 @@ export default function WatchPage() {
 
 function SidebarVideoCard({
   video,
+  isActive,
   categoryId,
   channelFilterId,
   duration,
 }: {
   video: Video;
+  isActive?: boolean;
   categoryId: string | null;
   channelFilterId?: string | null;
   duration?: number;
@@ -239,7 +432,12 @@ function SidebarVideoCard({
   const query = new URLSearchParams(params).toString();
 
   return (
-    <Link href={`/watch/${video.id}?${query}`} className="flex gap-3 group">
+    <Link
+      href={`/watch/${video.id}?${query}`}
+      className={`flex gap-3 group rounded-lg p-1.5 -m-1.5 transition-colors ${
+        isActive ? "bg-white/10" : "hover:bg-white/5"
+      }`}
+    >
       <div className="w-40 flex-shrink-0 aspect-video bg-gray-700 rounded-lg overflow-hidden relative">
         <img
           src={video.thumbnailUrl}
@@ -253,7 +451,9 @@ function SidebarVideoCard({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-white line-clamp-2 leading-snug group-hover:text-blue-400 transition-colors">
+        <p className={`text-sm line-clamp-2 leading-snug transition-colors ${
+          isActive ? "text-blue-400 font-medium" : "text-white group-hover:text-blue-400"
+        }`}>
           {video.title}
         </p>
         <p className="text-xs text-gray-500 mt-1">{video.channelTitle}</p>
