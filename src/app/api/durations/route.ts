@@ -1,45 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseIsoDuration } from "@/lib/utils";
+
+const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos";
 
 export async function GET(req: NextRequest) {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "YOUTUBE_API_KEY is not configured" },
+      { status: 500 }
+    );
+  }
+
   const idsParam = req.nextUrl.searchParams.get("ids");
   if (!idsParam) {
-    return NextResponse.json({ error: "ids parameter required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "ids parameter required" },
+      { status: 400 }
+    );
   }
 
   const ids = idsParam.split(",").filter(Boolean).slice(0, 50);
   const durations: Record<string, number> = {};
 
-  // Process in batches of 10
-  for (let i = 0; i < ids.length; i += 10) {
-    const batch = ids.slice(i, i + 10);
-    const results = await Promise.allSettled(
-      batch.map(async (id) => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        try {
-          const res = await fetch(`https://www.youtube.com/watch?v=${id}`, {
-            signal: controller.signal,
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            },
-          });
-          const html = await res.text();
-          const match = html.match(/"lengthSeconds":"(\d+)"/);
-          if (match) {
-            return { id, seconds: parseInt(match[1], 10) };
-          }
-          return null;
-        } finally {
-          clearTimeout(timeout);
-        }
-      })
-    );
+  const url = `${YOUTUBE_API_URL}?part=contentDetails&id=${ids.join(",")}&key=${apiKey}`;
+  const res = await fetch(url);
 
-    for (const result of results) {
-      if (result.status === "fulfilled" && result.value) {
-        durations[result.value.id] = result.value.seconds;
-      }
+  if (!res.ok) {
+    return NextResponse.json(
+      { error: "YouTube API request failed" },
+      { status: 502 }
+    );
+  }
+
+  const data = await res.json();
+
+  for (const item of data.items ?? []) {
+    const seconds = parseIsoDuration(item.contentDetails.duration);
+    if (seconds > 0) {
+      durations[item.id] = seconds;
     }
   }
 
