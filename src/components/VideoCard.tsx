@@ -8,10 +8,11 @@ import { timeAgo, formatDuration } from "@/lib/utils";
 interface VideoCardProps {
   video: Video;
   categoryId?: string | null;
+  channelFilterId?: string | null;
   duration?: number;
 }
 
-function VideoCard({ video, categoryId, duration }: VideoCardProps) {
+function VideoCard({ video, categoryId, channelFilterId, duration }: VideoCardProps) {
   const params: Record<string, string> = {
     ch: video.channelId,
     title: video.title,
@@ -19,6 +20,9 @@ function VideoCard({ video, categoryId, duration }: VideoCardProps) {
   };
   if (categoryId) {
     params.cat = categoryId;
+  }
+  if (channelFilterId) {
+    params.chFilter = channelFilterId;
   }
   const query = new URLSearchParams(params).toString();
 

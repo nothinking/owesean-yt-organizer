@@ -24,6 +24,7 @@ export default function WatchPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null
   );
+  const [channelFilterId, setChannelFilterId] = useState<string | null>(null);
 
   // URL에서 정보 읽기
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function WatchPage() {
     setVideoTitle(decodeURIComponent(searchParams.get("title") || ""));
     setChannelTitle(decodeURIComponent(searchParams.get("chTitle") || ""));
     setSelectedCategoryId(searchParams.get("cat"));
+    setChannelFilterId(searchParams.get("chFilter"));
   }, [videoId]);
 
   // 표시할 카테고리 결정
@@ -71,11 +73,18 @@ export default function WatchPage() {
         .catch(() => {});
     };
 
+    const applyFilters = (vids: Video[]) => {
+      let result = vids.filter((v) => v.id !== videoId);
+      if (channelFilterId) {
+        result = result.filter((v) => v.channelId === channelFilterId);
+      }
+      return result.slice(0, 20);
+    };
+
     // 캐시 확인
     const cached = getCachedFeed(sidebarChannelIds);
     if (cached) {
-      const filtered = cached.filter((v) => v.id !== videoId);
-      const sliced = filtered.slice(0, 20);
+      const sliced = applyFilters(cached);
       setSidebarVideos(sliced);
       fetchDurations(sliced);
       return;
@@ -87,14 +96,13 @@ export default function WatchPage() {
       .then((data) => {
         const allVideos = data.videos || [];
         setCachedFeed(sidebarChannelIds, allVideos);
-        const filtered = allVideos.filter((v: Video) => v.id !== videoId);
-        const sliced = filtered.slice(0, 20);
+        const sliced = applyFilters(allVideos);
         setSidebarVideos(sliced);
         fetchDurations(sliced);
       })
       .catch(() => {})
       .finally(() => setLoadingSidebar(false));
-  }, [sidebarChannelIds, videoId, getCachedFeed, setCachedFeed]);
+  }, [sidebarChannelIds, videoId, channelFilterId, getCachedFeed, setCachedFeed]);
 
   return (
     <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
@@ -164,9 +172,11 @@ export default function WatchPage() {
       {/* Sidebar */}
       <div className="w-full md:w-72 lg:w-80 xl:w-96 flex-shrink-0">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">
-          {currentCategory
-            ? `${currentCategory.name} 카테고리의 다른 영상`
-            : "전체 채널의 다른 영상"}
+          {channelFilterId
+            ? `${channelTitle || "채널"}의 다른 영상`
+            : currentCategory
+              ? `${currentCategory.name} 카테고리의 다른 영상`
+              : "전체 채널의 다른 영상"}
         </h2>
 
         {loadingSidebar && (
@@ -178,9 +188,11 @@ export default function WatchPage() {
 
         {!loadingSidebar && sidebarVideos.length === 0 && (
           <p className="text-xs text-gray-500 py-4">
-            {currentCategory
-              ? "같은 카테고리의 다른 영상이 없습니다."
-              : "다른 영상이 없습니다."}
+            {channelFilterId
+              ? "같은 채널의 다른 영상이 없습니다."
+              : currentCategory
+                ? "같은 카테고리의 다른 영상이 없습니다."
+                : "다른 영상이 없습니다."}
           </p>
         )}
 
@@ -192,6 +204,7 @@ export default function WatchPage() {
               categoryId={
                 selectedCategoryId ? currentCategory?.id || null : null
               }
+              channelFilterId={channelFilterId}
               duration={durations[video.id]}
             />
           ))}
@@ -204,10 +217,12 @@ export default function WatchPage() {
 function SidebarVideoCard({
   video,
   categoryId,
+  channelFilterId,
   duration,
 }: {
   video: Video;
   categoryId: string | null;
+  channelFilterId?: string | null;
   duration?: number;
 }) {
   const params: Record<string, string> = {
@@ -217,6 +232,9 @@ function SidebarVideoCard({
   };
   if (categoryId) {
     params.cat = categoryId;
+  }
+  if (channelFilterId) {
+    params.chFilter = channelFilterId;
   }
   const query = new URLSearchParams(params).toString();
 

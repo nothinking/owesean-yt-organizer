@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Video } from "@/types";
 import { useData } from "@/lib/DataContext";
 import CategoryCard from "@/components/CategoryCard";
@@ -18,6 +18,9 @@ export default function FeedPage() {
   } = useData();
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    null
+  );
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
     null
   );
   const [videos, setVideos] = useState<Video[]>([]);
@@ -113,6 +116,28 @@ export default function FeedPage() {
     setCachedFeed,
   ]);
 
+  // Derive available channels from loaded videos
+  const availableChannels = useMemo(() => {
+    const channelMap = new Map<string, { id: string; title: string; thumbnailUrl: string }>();
+    for (const video of videos) {
+      if (!channelMap.has(video.channelId)) {
+        const ch = channels.find((c) => c.id === video.channelId);
+        channelMap.set(video.channelId, {
+          id: video.channelId,
+          title: video.channelTitle,
+          thumbnailUrl: ch?.thumbnailUrl || "",
+        });
+      }
+    }
+    return Array.from(channelMap.values());
+  }, [videos, channels]);
+
+  // Filter videos by selected channel
+  const filteredVideos = useMemo(() => {
+    if (!selectedChannelId) return videos;
+    return videos.filter((v) => v.channelId === selectedChannelId);
+  }, [videos, selectedChannelId]);
+
   const uncategorizedIds = getUncategorizedIds();
 
   if (status === "loading") {
@@ -153,7 +178,7 @@ export default function FeedPage() {
       {/* Category tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         <button
-          onClick={() => setSelectedCategoryId(null)}
+          onClick={() => { setSelectedCategoryId(null); setSelectedChannelId(null); }}
           className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
             selectedCategoryId === null
               ? "bg-white text-gray-900 shadow-lg"
@@ -170,13 +195,13 @@ export default function FeedPage() {
             category={cat}
             isSelected={selectedCategoryId === cat.id}
             channelCount={cat.channelIds.length}
-            onClick={() => setSelectedCategoryId(cat.id)}
+            onClick={() => { setSelectedCategoryId(cat.id); setSelectedChannelId(null); }}
           />
         ))}
 
         {uncategorizedIds.length > 0 && (
           <button
-            onClick={() => setSelectedCategoryId("__uncategorized__")}
+            onClick={() => { setSelectedCategoryId("__uncategorized__"); setSelectedChannelId(null); }}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
               selectedCategoryId === "__uncategorized__"
                 ? "bg-gray-600 text-white shadow-lg"
@@ -191,6 +216,42 @@ export default function FeedPage() {
         )}
       </div>
 
+      {/* Channel filter chips */}
+      {availableChannels.length >= 2 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mt-3">
+          <button
+            onClick={() => setSelectedChannelId(null)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+              selectedChannelId === null
+                ? "bg-blue-600 text-white shadow"
+                : "bg-gray-800/80 text-gray-400 hover:bg-gray-700"
+            }`}
+          >
+            전체 채널
+          </button>
+          {availableChannels.map((ch) => (
+            <button
+              key={ch.id}
+              onClick={() => setSelectedChannelId(ch.id === selectedChannelId ? null : ch.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                selectedChannelId === ch.id
+                  ? "bg-blue-600 text-white shadow"
+                  : "bg-gray-800/80 text-gray-400 hover:bg-gray-700"
+              }`}
+            >
+              {ch.thumbnailUrl && (
+                <img
+                  src={ch.thumbnailUrl}
+                  alt=""
+                  className="w-4 h-4 rounded-full object-cover"
+                />
+              )}
+              {ch.title}
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-900/30 border border-red-800 text-red-300 rounded-lg p-4 text-sm">
           {error}
@@ -198,14 +259,14 @@ export default function FeedPage() {
       )}
 
       {/* 영상 그리드: 로딩 중에도 기존 영상 유지 */}
-      {loadingVideos && videos.length === 0 && (
+      {loadingVideos && filteredVideos.length === 0 && (
         <div className="text-center py-12 text-gray-400">
           <div className="inline-block w-6 h-6 border-2 border-gray-600 border-t-white rounded-full animate-spin mb-3" />
           <p>최신 영상을 불러오는 중...</p>
         </div>
       )}
 
-      {videos.length > 0 && (
+      {filteredVideos.length > 0 && (
         <div className="relative">
           {loadingVideos && (
             <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
@@ -213,11 +274,12 @@ export default function FeedPage() {
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {videos.map((video) => (
+            {filteredVideos.map((video) => (
               <VideoCard
                 key={video.id}
                 video={video}
                 categoryId={selectedCategoryId}
+                channelFilterId={selectedChannelId}
                 duration={durations[video.id]}
               />
             ))}
@@ -225,7 +287,7 @@ export default function FeedPage() {
         </div>
       )}
 
-      {!loadingVideos && videos.length === 0 && channels.length === 0 && (
+      {!loadingVideos && filteredVideos.length === 0 && channels.length === 0 && (
         <div className="text-center py-16 text-gray-500">
           <p className="text-lg mb-2">아직 추가된 채널이 없습니다</p>
           <p className="text-sm">
@@ -236,10 +298,10 @@ export default function FeedPage() {
       )}
 
       {!loadingVideos &&
-        videos.length === 0 &&
+        filteredVideos.length === 0 &&
         channels.length > 0 && (
           <div className="text-center py-12 text-gray-500">
-            <p>이 카테고리에 영상이 없습니다.</p>
+            <p>{selectedChannelId ? "이 채널에 영상이 없습니다." : "이 카테고리에 영상이 없습니다."}</p>
           </div>
         )}
     </div>
