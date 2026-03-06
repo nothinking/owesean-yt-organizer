@@ -18,3 +18,14 @@ export function timeAgo(dateStr: string): string {
 export function sanitizeText(text: string, maxLength = 200): string {
   return text.replace(/[<>"'&]/g, "").slice(0, maxLength);
 }
+
+export function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  const sPad = s.toString().padStart(2, "0");
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, "0")}:${sPad}`;
+  }
+  return `${m}:${sPad}`;
+}

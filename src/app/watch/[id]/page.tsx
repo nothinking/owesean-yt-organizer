@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { Video } from "@/types";
 import { useData } from "@/lib/DataContext";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, formatDuration } from "@/lib/utils";
 import Link from "next/link";
 
 export default function WatchPage() {
@@ -16,6 +16,7 @@ export default function WatchPage() {
 
   const [sidebarVideos, setSidebarVideos] = useState<Video[]>([]);
   const [loadingSidebar, setLoadingSidebar] = useState(false);
+  const [durations, setDurations] = useState<Record<string, number>>({});
 
   const [channelId, setChannelId] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState("");
@@ -59,11 +60,24 @@ export default function WatchPage() {
       return;
     }
 
+    const fetchDurations = (vids: Video[]) => {
+      const ids = vids.map((v) => v.id).join(",");
+      if (!ids) return;
+      fetch(`/api/durations?ids=${ids}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.durations) setDurations((prev) => ({ ...prev, ...d.durations }));
+        })
+        .catch(() => {});
+    };
+
     // 캐시 확인
     const cached = getCachedFeed(sidebarChannelIds);
     if (cached) {
       const filtered = cached.filter((v) => v.id !== videoId);
-      setSidebarVideos(filtered.slice(0, 20));
+      const sliced = filtered.slice(0, 20);
+      setSidebarVideos(sliced);
+      fetchDurations(sliced);
       return;
     }
 
@@ -74,7 +88,9 @@ export default function WatchPage() {
         const allVideos = data.videos || [];
         setCachedFeed(sidebarChannelIds, allVideos);
         const filtered = allVideos.filter((v: Video) => v.id !== videoId);
-        setSidebarVideos(filtered.slice(0, 20));
+        const sliced = filtered.slice(0, 20);
+        setSidebarVideos(sliced);
+        fetchDurations(sliced);
       })
       .catch(() => {})
       .finally(() => setLoadingSidebar(false));
@@ -176,6 +192,7 @@ export default function WatchPage() {
               categoryId={
                 selectedCategoryId ? currentCategory?.id || null : null
               }
+              duration={durations[video.id]}
             />
           ))}
         </div>
@@ -187,9 +204,11 @@ export default function WatchPage() {
 function SidebarVideoCard({
   video,
   categoryId,
+  duration,
 }: {
   video: Video;
   categoryId: string | null;
+  duration?: number;
 }) {
   const params: Record<string, string> = {
     ch: video.channelId,
@@ -203,12 +222,17 @@ function SidebarVideoCard({
 
   return (
     <Link href={`/watch/${video.id}?${query}`} className="flex gap-3 group">
-      <div className="w-40 flex-shrink-0 aspect-video bg-gray-700 rounded-lg overflow-hidden">
+      <div className="w-40 flex-shrink-0 aspect-video bg-gray-700 rounded-lg overflow-hidden relative">
         <img
           src={video.thumbnailUrl}
           alt={video.title}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
+        {duration != null && (
+          <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 py-0.5 rounded font-medium">
+            {formatDuration(duration)}
+          </span>
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white line-clamp-2 leading-snug group-hover:text-blue-400 transition-colors">

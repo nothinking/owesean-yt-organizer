@@ -24,6 +24,7 @@ export default function FeedPage() {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [durations, setDurations] = useState<Record<string, number>>({});
 
   // Get uncategorized channel IDs
   const getUncategorizedIds = useCallback((): string[] => {
@@ -57,6 +58,17 @@ export default function FeedPage() {
     const cached = getCachedFeed(channelIds);
     if (cached) {
       setVideos(cached);
+      // Fetch durations for cached videos that don't have durations yet
+      const missing = cached.filter((v) => !(v.id in durations));
+      if (missing.length > 0) {
+        const ids = missing.map((v) => v.id).join(",");
+        fetch(`/api/durations?ids=${ids}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.durations) setDurations((prev) => ({ ...prev, ...d.durations }));
+          })
+          .catch(() => {});
+      }
       return;
     }
 
@@ -77,6 +89,16 @@ export default function FeedPage() {
         const vids = data.videos || [];
         setVideos(vids);
         setCachedFeed(channelIds, vids);
+        // Fetch durations asynchronously
+        if (vids.length > 0) {
+          const ids = vids.map((v: Video) => v.id).join(",");
+          fetch(`/api/durations?ids=${ids}`)
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.durations) setDurations((prev) => ({ ...prev, ...d.durations }));
+            })
+            .catch(() => {});
+        }
       })
       .catch((err) => {
         if (err.name !== "AbortError") setError(err.message);
@@ -196,6 +218,7 @@ export default function FeedPage() {
                 key={video.id}
                 video={video}
                 categoryId={selectedCategoryId}
+                duration={durations[video.id]}
               />
             ))}
           </div>

@@ -3,14 +3,15 @@
 import { memo } from "react";
 import Link from "next/link";
 import { Video } from "@/types";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, formatDuration } from "@/lib/utils";
 
 interface VideoCardProps {
   video: Video;
   categoryId?: string | null;
+  duration?: number;
 }
 
-function VideoCard({ video, categoryId }: VideoCardProps) {
+function VideoCard({ video, categoryId, duration }: VideoCardProps) {
   const params: Record<string, string> = {
     ch: video.channelId,
     title: video.title,
@@ -36,6 +37,11 @@ function VideoCard({ video, categoryId }: VideoCardProps) {
           />
         )}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+        {duration != null && (
+          <span className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 py-0.5 rounded font-medium">
+            {formatDuration(duration)}
+          </span>
+        )}
       </div>
       <div className="p-3">
         <h3 className="text-sm font-medium text-white line-clamp-2 leading-snug group-hover:text-blue-400 transition-colors">
